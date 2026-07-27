@@ -95,14 +95,14 @@ def job1_channel_ingestion() -> None:
 
     @task
     def fetch_latest_uploads(channel_info: Dict[str, str]) -> List[Dict[str, Any]]:
-        """Simulate the playlistItems.list response for the five latest uploads."""
+        """Simulate the playlistItems.list response for the fifty latest uploads."""
 
         channel_id = channel_info["channel_id"]
         playlist_id = channel_info["uploads_playlist_id"]
         base_published_at = datetime.now(timezone.utc)
 
         dummy_videos: List[Dict[str, Any]] = []
-        for index in range(5):
+        for index in range(50):
             dummy_videos.append(
                 {
                     "video_id": f"{playlist_id}_video_{index + 1}",

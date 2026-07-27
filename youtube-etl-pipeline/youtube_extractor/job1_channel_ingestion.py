@@ -87,6 +87,11 @@ def get_active_channels(conn) -> List[Dict[str, str]]:
         for row in rows
     ]
     log.info("Loaded %d active channel seeds", len(channels))
+    if not channels:
+        log.warning(
+            "No channels with uploads_playlist_id found in channel_stats. "
+            "Seed new channels using: python youtube_extractor/switch_channels.py --csv <file>"
+        )
     return channels
 
 
@@ -94,7 +99,7 @@ def get_active_channels(conn) -> List[Dict[str, str]]:
 # Step 2: Simulate latest uploads for a channel
 # ---------------------------------------------------------------------------
 def fetch_latest_uploads(channel_info: Dict[str, str]) -> List[Dict[str, Any]]:
-    """Simulate the playlistItems.list response for the five latest uploads."""
+    """Simulate the playlistItems.list response for the fifty latest uploads."""
 
     channel_id = str(channel_info["channel_id"]).strip()[:64]
     raw_playlist = str(channel_info["uploads_playlist_id"]).strip()
@@ -102,7 +107,7 @@ def fetch_latest_uploads(channel_info: Dict[str, str]) -> List[Dict[str, Any]]:
     base_published_at = datetime.now(timezone.utc)
 
     dummy_videos: List[Dict[str, Any]] = []
-    for index in range(5):
+    for index in range(50):
         vid = f"{playlist_id}_v{index + 1}"[:64]
         dummy_videos.append(
             {

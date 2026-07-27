@@ -172,6 +172,48 @@ If the file contains encoding issues, set the client encoding first:
 
 Open http://localhost:8888, navigate to `work/youtube_analysis.ipynb`, and run all cells.
 
+### Rotating / Switching Channel Sets
+
+To switch the pipeline to a **new set of channels** while preserving all historical data:
+
+1. **Prepare your CSV** with columns: `channel_id, channel_title, country, subscriber_count, total_views, uploads_playlist_id`.
+   See [`channels_template.csv`](youtube_extractor/channels_template.csv) for the expected format.
+
+2. **Run the migration script** (requires `SUPABASE_DB_URL` env var):
+
+   ```bash
+   # Preview what will happen (no database changes):
+   python youtube_extractor/switch_channels.py --csv youtube_extractor/enriched_channels_list.csv --dry-run
+
+   # Execute the migration:
+   python youtube_extractor/switch_channels.py --csv youtube_extractor/enriched_channels_list.csv
+   ```
+
+   This will:
+   - Copy `channel_stats`, `videos`, and `view_timeseries` into `*_archive` tables
+   - Clear the active tables
+   - Seed the new channels from your CSV
+
+3. **Re-trigger the pipeline** (GitHub Actions or Airflow) to start ingesting videos for the new channels.
+
+### Querying Archived Data
+
+Historical data is preserved in archive tables and can be queried at any time:
+
+```sql
+-- See all archived channel snapshots
+SELECT * FROM channel_stats_archive ORDER BY archived_at DESC;
+
+-- Retrieve old video polling records
+SELECT * FROM videos_archive WHERE channel_id = 'UCxxxxxxxxxx';
+
+-- Query historical view timeseries
+SELECT video_id, scraped_at, view_count, like_count, comment_count
+FROM view_timeseries_archive
+WHERE video_id = 'some_old_video_id'
+ORDER BY scraped_at ASC;
+```
+
 ---
 
 ## Service Details
