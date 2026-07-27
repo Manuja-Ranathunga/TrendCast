@@ -79,4 +79,6 @@ jobs:
           env | grep -i youtube || echo "No YOUTUBE env vars found"
 
       - name: Run Timeseries Collector
-        run: python youtube-etl-pipeline/youtube_extractor/job2_timeseries_collector.py
+        run: |
+          python -c "import os; k=os.environ.get('YOUTUBE_API_KEYS',''); print(f'Python sees YOUTUBE_API_KEYS: len={len(k)} bool={bool(k.strip())}')"
+          python youtube-etl-pipeline/youtube_extractor/job2_timeseries_collector.py
