@@ -24,7 +24,9 @@ from typing import Any, Dict, List
 import psycopg2
 from googleapiclient.errors import HttpError
 
-from youtube_extractor.key_pool import APIKeyPool, AllKeysExhaustedError
+# Ensure sibling modules (key_pool.py) are importable when run as a standalone script
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from key_pool import APIKeyPool, AllKeysExhaustedError
 
 # ---------------------------------------------------------------------------
 # Logging
