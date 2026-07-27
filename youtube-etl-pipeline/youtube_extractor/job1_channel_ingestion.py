@@ -69,29 +69,6 @@ ON CONFLICT (video_id) DO UPDATE SET
     current_interval_hours = videos.current_interval_hours;
 """
 
-ENSURE_MIGRATIONS_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS _etl_migrations (
-    migration_name  VARCHAR(128)    PRIMARY KEY,
-    applied_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
-);
-"""
-
-MIGRATION_FLAG = "archive_fake_videos_v1"
-
-ARCHIVE_FAKE_VIDEOS_SQL = """
-INSERT INTO videos_archive
-    (video_id, channel_id, published_at, status,
-     last_polled_at, next_poll_at, current_interval_hours, created_at)
-SELECT
-    video_id, channel_id, published_at, status,
-    last_polled_at, next_poll_at, current_interval_hours, created_at
-FROM videos;
-"""
-
-CLEAR_VIDEOS_SQL = """
-DELETE FROM videos;
-"""
-
 
 # ---------------------------------------------------------------------------
 # Step 1: Load active channel seeds from PostgreSQL
@@ -205,46 +182,6 @@ def merge_new_videos_to_db(conn, videos: List[Dict[str, Any]]) -> int:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def archive_and_clear_fake_videos(conn) -> None:
-    """One-time migration: move all existing fake/simulated video rows
-    into videos_archive, then clear the live table.
-
-    Uses a database-level flag in _etl_migrations so it runs exactly once.
-    """
-    with conn.cursor() as cur:
-        cur.execute(ENSURE_MIGRATIONS_TABLE_SQL)
-
-        cur.execute(
-            "SELECT 1 FROM _etl_migrations WHERE migration_name = %s;",
-            (MIGRATION_FLAG,),
-        )
-        if cur.fetchone() is not None:
-            log.info("Migration '%s' already applied — skipping", MIGRATION_FLAG)
-            conn.commit()
-            return
-
-        cur.execute("SELECT COUNT(*) FROM videos;")
-        row_count = cur.fetchone()[0]
-
-        if row_count > 0:
-            cur.execute(ARCHIVE_FAKE_VIDEOS_SQL)
-            archived = cur.rowcount
-            log.info("Archived %d fake video rows into videos_archive", archived)
-
-            cur.execute(CLEAR_VIDEOS_SQL)
-            log.info("Cleared videos table")
-        else:
-            log.info("videos table is already empty — nothing to archive")
-
-        cur.execute(
-            "INSERT INTO _etl_migrations (migration_name) VALUES (%s);",
-            (MIGRATION_FLAG,),
-        )
-        log.info("Migration '%s' recorded — will not run again", MIGRATION_FLAG)
-
-    conn.commit()
-
-
 def main() -> None:
     db_url = os.environ.get("SUPABASE_DB_URL")
     if not db_url:
@@ -258,9 +195,6 @@ def main() -> None:
 
     conn = psycopg2.connect(db_url)
     try:
-        # Step 0: Archive old fake videos (one-time migration)
-        archive_and_clear_fake_videos(conn)
-
         # Step 1: Get active channels
         channels = get_active_channels(conn)
 

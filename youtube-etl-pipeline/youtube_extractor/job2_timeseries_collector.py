@@ -65,27 +65,6 @@ SET last_polled_at = %(last_polled_at)s,
 WHERE video_id = %(video_id)s;
 """
 
-ENSURE_MIGRATIONS_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS _etl_migrations (
-    migration_name  VARCHAR(128)    PRIMARY KEY,
-    applied_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
-);
-"""
-
-MIGRATION_FLAG = "archive_mock_timeseries_v1"
-
-ARCHIVE_MOCK_DATA_SQL = """
-INSERT INTO view_timeseries_archive
-    (original_id, video_id, scraped_at, view_count, like_count, comment_count)
-SELECT
-    id, video_id, scraped_at, view_count, like_count, comment_count
-FROM view_timeseries;
-"""
-
-CLEAR_TIMESERIES_SQL = """
-TRUNCATE view_timeseries;
-"""
-
 
 # ---------------------------------------------------------------------------
 # Decay Logic
@@ -256,53 +235,6 @@ def apply_decay_and_update(conn, metrics: List[Dict[str, Any]]) -> int:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def archive_and_clear_mock_data(conn) -> None:
-    """One-time migration: move all existing mock/simulated timeseries rows
-    into view_timeseries_archive, then truncate the live table.
-
-    Uses a database-level flag in _etl_migrations so it runs exactly once,
-    even across multiple deployments or runners.
-    """
-    with conn.cursor() as cur:
-        # Ensure the migrations flag table exists
-        cur.execute(ENSURE_MIGRATIONS_TABLE_SQL)
-
-        # Check if this migration has already been applied
-        cur.execute(
-            "SELECT 1 FROM _etl_migrations WHERE migration_name = %s;",
-            (MIGRATION_FLAG,),
-        )
-        if cur.fetchone() is not None:
-            log.info("Migration '%s' already applied — skipping archive step", MIGRATION_FLAG)
-            conn.commit()
-            return
-
-        # Check if there is anything to archive
-        cur.execute("SELECT COUNT(*) FROM view_timeseries;")
-        row_count = cur.fetchone()[0]
-
-        if row_count > 0:
-            # Archive existing rows
-            cur.execute(ARCHIVE_MOCK_DATA_SQL)
-            archived = cur.rowcount
-            log.info("Archived %d mock timeseries rows into view_timeseries_archive", archived)
-
-            # Clear the live table
-            cur.execute(CLEAR_TIMESERIES_SQL)
-            log.info("Truncated view_timeseries table")
-        else:
-            log.info("view_timeseries is already empty — nothing to archive")
-
-        # Record that this migration is done
-        cur.execute(
-            "INSERT INTO _etl_migrations (migration_name) VALUES (%s);",
-            (MIGRATION_FLAG,),
-        )
-        log.info("Migration '%s' recorded — will not run again", MIGRATION_FLAG)
-
-    conn.commit()
-
-
 def main() -> None:
     db_url = os.environ.get("SUPABASE_DB_URL")
     if not db_url:
@@ -316,9 +248,6 @@ def main() -> None:
 
     conn = psycopg2.connect(db_url)
     try:
-        # Step 0: Archive old mock data and clear the live table
-        archive_and_clear_mock_data(conn)
-
         # Step 1: Get due videos
         due_videos = query_due_videos(conn)
 
