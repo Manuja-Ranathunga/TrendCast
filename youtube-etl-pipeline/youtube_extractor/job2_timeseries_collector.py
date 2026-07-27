@@ -3,12 +3,13 @@
 job2_timeseries_collector.py — Standalone Script (GitHub Actions)
 ================================================================================
 Schedule  : Every 15 minutes (*/15 * * * *)
-Purpose   : Poll due videos, collect time-series metrics, and adjust polling
-            cadence based on video age.
+Purpose   : Poll due videos, collect REAL time-series metrics from the
+            YouTube Data API v3, and adjust polling cadence based on video age.
 
 Environment Variables:
-    SUPABASE_DB_URL   — PostgreSQL connection string
-    YOUTUBE_API_KEY   — YouTube Data API v3 key (reserved for future real API)
+    SUPABASE_DB_URL    — PostgreSQL connection string
+    YOUTUBE_API_KEYS   — Comma-separated YouTube Data API v3 keys (preferred)
+    YOUTUBE_API_KEY    — Single YouTube API key (fallback)
 ================================================================================
 """
 
@@ -21,6 +22,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 import psycopg2
+from googleapiclient.errors import HttpError
+
+from youtube_extractor.key_pool import APIKeyPool, AllKeysExhaustedError
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -57,6 +61,27 @@ SET last_polled_at = %(last_polled_at)s,
     next_poll_at = %(next_poll_at)s,
     current_interval_hours = %(current_interval_hours)s
 WHERE video_id = %(video_id)s;
+"""
+
+ENSURE_MIGRATIONS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS _etl_migrations (
+    migration_name  VARCHAR(128)    PRIMARY KEY,
+    applied_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+"""
+
+MIGRATION_FLAG = "archive_mock_timeseries_v1"
+
+ARCHIVE_MOCK_DATA_SQL = """
+INSERT INTO view_timeseries_archive
+    (original_id, video_id, scraped_at, view_count, like_count, comment_count)
+SELECT
+    id, video_id, scraped_at, view_count, like_count, comment_count
+FROM view_timeseries;
+"""
+
+CLEAR_TIMESERIES_SQL = """
+TRUNCATE view_timeseries;
 """
 
 
@@ -104,27 +129,67 @@ def query_due_videos(conn) -> List[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Fetch YouTube stats for each video (currently simulated)
+# Step 2: Fetch REAL YouTube stats via YouTube Data API v3
 # ---------------------------------------------------------------------------
-def fetch_youtube_stats(due_videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Mock a YouTube videos.list response for due videos."""
+def fetch_youtube_stats(
+    due_videos: List[Dict[str, Any]],
+    key_pool: APIKeyPool,
+) -> List[Dict[str, Any]]:
+    """Fetch real statistics from the YouTube Data API v3 for due videos.
+
+    Uses the APIKeyPool for automatic key rotation on quota exhaustion.
+    Videos are requested in batches of 50 (the YouTube API max per request).
+    Each batch costs 1 quota unit.
+    """
 
     fetched_at = datetime.now(timezone.utc).isoformat()
     metrics: List[Dict[str, Any]] = []
 
-    for index, video in enumerate(due_videos, start=1):
-        metrics.append(
-            {
-                "video_id": video["video_id"],
-                "published_at": video["published_at"],
-                "scraped_at": fetched_at,
-                "view_count": 1000 + index * 25,
-                "like_count": 100 + index * 3,
-                "comment_count": 10 + index,
-            }
+    # Build a lookup so we can pair API results back to published_at
+    video_lookup = {v["video_id"]: v["published_at"] for v in due_videos}
+    video_ids = list(video_lookup.keys())
+
+    # YouTube API accepts up to 50 video IDs per request
+    BATCH_SIZE = 50
+
+    for i in range(0, len(video_ids), BATCH_SIZE):
+        chunk = video_ids[i : i + BATCH_SIZE]
+        ids_csv = ",".join(chunk)
+
+        log.info(
+            "Requesting stats batch %d–%d of %d videos",
+            i + 1,
+            min(i + BATCH_SIZE, len(video_ids)),
+            len(video_ids),
         )
 
-    log.info("Fetched metrics for %d videos", len(metrics))
+        try:
+            response = key_pool.execute_with_rotation(
+                lambda svc, ids=ids_csv: svc.videos().list(part="statistics", id=ids)
+            )
+        except AllKeysExhaustedError:
+            log.error("All YouTube API keys exhausted — aborting remaining batches")
+            break
+        except HttpError as exc:
+            log.error("YouTube API error (non-quota): %s", exc)
+            continue  # skip this batch, try the next
+
+        for item in response.get("items", []):
+            vid = item["id"]
+            stats = item.get("statistics", {})
+
+            metrics.append(
+                {
+                    "video_id": vid,
+                    "published_at": video_lookup.get(vid, ""),
+                    "scraped_at": fetched_at,
+                    "view_count": int(stats.get("viewCount", 0)),
+                    "like_count": int(stats.get("likeCount", 0)),
+                    "comment_count": int(stats.get("commentCount", 0)),
+                }
+            )
+
+    log.info("Fetched real metrics for %d / %d videos", len(metrics), len(video_ids))
     return metrics
 
 
@@ -189,6 +254,53 @@ def apply_decay_and_update(conn, metrics: List[Dict[str, Any]]) -> int:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+def archive_and_clear_mock_data(conn) -> None:
+    """One-time migration: move all existing mock/simulated timeseries rows
+    into view_timeseries_archive, then truncate the live table.
+
+    Uses a database-level flag in _etl_migrations so it runs exactly once,
+    even across multiple deployments or runners.
+    """
+    with conn.cursor() as cur:
+        # Ensure the migrations flag table exists
+        cur.execute(ENSURE_MIGRATIONS_TABLE_SQL)
+
+        # Check if this migration has already been applied
+        cur.execute(
+            "SELECT 1 FROM _etl_migrations WHERE migration_name = %s;",
+            (MIGRATION_FLAG,),
+        )
+        if cur.fetchone() is not None:
+            log.info("Migration '%s' already applied — skipping archive step", MIGRATION_FLAG)
+            conn.commit()
+            return
+
+        # Check if there is anything to archive
+        cur.execute("SELECT COUNT(*) FROM view_timeseries;")
+        row_count = cur.fetchone()[0]
+
+        if row_count > 0:
+            # Archive existing rows
+            cur.execute(ARCHIVE_MOCK_DATA_SQL)
+            archived = cur.rowcount
+            log.info("Archived %d mock timeseries rows into view_timeseries_archive", archived)
+
+            # Clear the live table
+            cur.execute(CLEAR_TIMESERIES_SQL)
+            log.info("Truncated view_timeseries table")
+        else:
+            log.info("view_timeseries is already empty — nothing to archive")
+
+        # Record that this migration is done
+        cur.execute(
+            "INSERT INTO _etl_migrations (migration_name) VALUES (%s);",
+            (MIGRATION_FLAG,),
+        )
+        log.info("Migration '%s' recorded — will not run again", MIGRATION_FLAG)
+
+    conn.commit()
+
+
 def main() -> None:
     db_url = os.environ.get("SUPABASE_DB_URL")
     if not db_url:
@@ -197,8 +309,14 @@ def main() -> None:
 
     log.info("Job 2 — Timeseries Collector starting")
 
+    # Initialise the YouTube API key pool from environment
+    key_pool = APIKeyPool.from_env()
+
     conn = psycopg2.connect(db_url)
     try:
+        # Step 0: Archive old mock data and clear the live table
+        archive_and_clear_mock_data(conn)
+
         # Step 1: Get due videos
         due_videos = query_due_videos(conn)
 
@@ -206,8 +324,8 @@ def main() -> None:
             log.info("No videos are due for polling — exiting")
             return
 
-        # Step 2: Fetch stats
-        metrics = fetch_youtube_stats(due_videos)
+        # Step 2: Fetch REAL stats from YouTube API
+        metrics = fetch_youtube_stats(due_videos, key_pool)
 
         # Step 3: Persist and apply decay
         total = apply_decay_and_update(conn, metrics)
