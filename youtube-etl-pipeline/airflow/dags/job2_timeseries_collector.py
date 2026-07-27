@@ -138,13 +138,7 @@ def job2_timeseries_collector() -> None:
         written_rows = 0
 
         def select_interval_hours(age_hours: float) -> int:
-            if age_hours < 24:
-                return 1
-            if age_hours < 7 * 24:
-                return 6
-            if age_hours < 30 * 24:
-                return 24
-            return 168
+            return 1
 
         with hook.get_conn() as conn:
             with conn.cursor() as cur:
