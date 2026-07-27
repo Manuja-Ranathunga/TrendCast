@@ -311,6 +311,15 @@ def main() -> None:
 
     log.info("Job 2 — Timeseries Collector starting")
 
+    # Debug: check which API key env vars are present
+    has_keys = bool(os.environ.get("YOUTUBE_API_KEYS", "").strip())
+    has_key = bool(os.environ.get("YOUTUBE_API_KEY", "").strip())
+    log.info(
+        "API key env check — YOUTUBE_API_KEYS present: %s, YOUTUBE_API_KEY present: %s",
+        has_keys,
+        has_key,
+    )
+
     # Initialise the YouTube API key pool from environment
     key_pool = APIKeyPool.from_env()
 
