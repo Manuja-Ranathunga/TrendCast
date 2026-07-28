@@ -69,12 +69,13 @@ WHERE video_id = %(video_id)s;
 # ---------------------------------------------------------------------------
 # Decay Logic
 # ---------------------------------------------------------------------------
-def select_interval_hours(age_hours: float) -> int:
+def select_interval_hours(age_hours: float) -> float:
     """Choose the next polling interval based on how old the video is.
-    
     Currently fixed to 1 hour for all videos.
     """
-    return 1
+    if age_hours <= 2:
+        return 0.25 
+    return 1.0
 
 
 # ---------------------------------------------------------------------------

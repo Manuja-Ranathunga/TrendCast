@@ -137,8 +137,10 @@ def job2_timeseries_collector() -> None:
         hook = PostgresHook(postgres_conn_id=postgres_conn_id)
         written_rows = 0
 
-        def select_interval_hours(age_hours: float) -> int:
-            return 1
+        def select_interval_hours(age_hours: float) -> float:
+            if age_hours <+ 2:
+                return 0.25
+            return 1.0
 
         with hook.get_conn() as conn:
             with conn.cursor() as cur:
