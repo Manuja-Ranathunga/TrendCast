@@ -4,8 +4,8 @@ on:
   schedule:
     # Job 1 — Channel Ingestion: twice daily at minute 17 (avoiding top of the hour queue spikes)
     - cron: '17 */12 * * *'
-    # Job 2 — Timeseries Collector: every 15 minutes at minutes 7, 22, 37, 52
-    - cron: '7,22,37,52 * * * *'
+    # Job 2 — Timeseries Collector: every 5 minutes (offset by 2 to avoid top-of-hour spikes)
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch:
     inputs:
       job:
@@ -50,7 +50,7 @@ jobs:
         run: python youtube-etl-pipeline/youtube_extractor/job1_channel_ingestion.py
 
   # =========================================================================
-  # Job 2 — Timeseries Collector (runs every 15 minutes)
+  # Job 2 — Timeseries Collector (runs every 5 minutes)
   # =========================================================================
   timeseries_collector:
     name: "Job 2 — Timeseries Collector"

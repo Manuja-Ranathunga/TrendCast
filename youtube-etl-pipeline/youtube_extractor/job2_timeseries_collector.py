@@ -2,9 +2,12 @@
 ================================================================================
 job2_timeseries_collector.py — Standalone Script (GitHub Actions)
 ================================================================================
-Schedule  : Every 15 minutes (*/15 * * * *)
+Schedule  : Every 5 minutes (*/5 * * * *)
 Purpose   : Poll due videos, collect REAL time-series metrics from the
             YouTube Data API v3, and adjust polling cadence based on video age.
+
+            Also detects deleted/privatized videos (missing from API response)
+            and flags them to prevent infinite re-polling.
 
 Environment Variables:
     SUPABASE_DB_URL    — PostgreSQL connection string
@@ -19,7 +22,7 @@ import logging
 import os
 import sys
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set, Tuple
 
 import psycopg2
 from googleapiclient.errors import HttpError
@@ -65,17 +68,31 @@ SET last_polled_at = %(last_polled_at)s,
 WHERE video_id = %(video_id)s;
 """
 
+MARK_DELETED_SQL = """
+UPDATE videos
+SET status = 'deleted_or_private',
+    last_polled_at = CURRENT_TIMESTAMP,
+    next_poll_at = NULL
+WHERE video_id = %(video_id)s;
+"""
+
 
 # ---------------------------------------------------------------------------
 # Decay Logic
 # ---------------------------------------------------------------------------
 def select_interval_hours(age_hours: float) -> float:
     """Choose the next polling interval based on how old the video is.
-    Currently fixed to 1 hour for all videos.
+
+    Decay tiers:
+        0–1 h   → every ~5 min  (0.083 h)  — capture early velocity
+        1–2 h   → every 15 min  (0.25 h)
+        2+ h    → every 1 hour  (1.0 h)
     """
-    if age_hours <= 2:
-        return 0.25 
-    return 1.0
+    if age_hours <= 1:
+        return 0.083  # ~5 minutes — high-frequency early capture
+    elif age_hours <= 2:
+        return 0.25   # 15 minutes
+    return 1.0        # 1 hour
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +105,7 @@ def query_due_videos(conn) -> List[Dict[str, Any]]:
         SELECT video_id, published_at
         FROM videos
         WHERE next_poll_at <= CURRENT_TIMESTAMP
+          AND status = 'active'
         ORDER BY next_poll_at ASC, video_id ASC
     """
 
@@ -113,16 +131,22 @@ def query_due_videos(conn) -> List[Dict[str, Any]]:
 def fetch_youtube_stats(
     due_videos: List[Dict[str, Any]],
     key_pool: APIKeyPool,
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], Set[str]]:
     """Fetch real statistics from the YouTube Data API v3 for due videos.
 
     Uses the APIKeyPool for automatic key rotation on quota exhaustion.
     Videos are requested in batches of 50 (the YouTube API max per request).
     Each batch costs 1 quota unit.
+
+    Returns:
+        metrics         — List of stat dicts for videos that were found.
+        missing_ids     — Set of video IDs that were requested but NOT returned
+                          by the API (deleted / privatized).
     """
 
     fetched_at = datetime.now(timezone.utc).isoformat()
     metrics: List[Dict[str, Any]] = []
+    missing_ids: Set[str] = set()
 
     # Build a lookup so we can pair API results back to published_at
     video_lookup = {v["video_id"]: v["published_at"] for v in due_videos}
@@ -153,8 +177,12 @@ def fetch_youtube_stats(
             log.error("YouTube API error (non-quota): %s", exc)
             continue  # skip this batch, try the next
 
+        # Collect IDs the API actually returned in this batch
+        returned_ids_in_batch: Set[str] = set()
+
         for item in response.get("items", []):
             vid = item["id"]
+            returned_ids_in_batch.add(vid)
             stats = item.get("statistics", {})
 
             metrics.append(
@@ -168,8 +196,20 @@ def fetch_youtube_stats(
                 }
             )
 
+        # Detect deleted/privatized: requested but not returned
+        batch_missing = set(chunk) - returned_ids_in_batch
+        if batch_missing:
+            log.warning(
+                "Detected %d deleted/private videos in batch: %s",
+                len(batch_missing),
+                ", ".join(sorted(batch_missing)),
+            )
+            missing_ids.update(batch_missing)
+
     log.info("Fetched real metrics for %d / %d videos", len(metrics), len(video_ids))
-    return metrics
+    if missing_ids:
+        log.info("Total deleted/private videos detected: %d", len(missing_ids))
+    return metrics, missing_ids
 
 
 from psycopg2.extras import execute_batch
@@ -233,6 +273,29 @@ def apply_decay_and_update(conn, metrics: List[Dict[str, Any]]) -> int:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+def mark_deleted_or_private(conn, missing_ids: Set[str]) -> int:
+    """Flag videos that the YouTube API no longer returns (deleted/privatized).
+
+    Sets status = 'deleted_or_private' and next_poll_at = NULL so they are
+    never fetched again by query_due_videos.
+    """
+    if not missing_ids:
+        return 0
+
+    rows = [{"video_id": vid} for vid in sorted(missing_ids)]
+
+    with conn.cursor() as cur:
+        execute_batch(cur, MARK_DELETED_SQL, rows, page_size=200)
+    conn.commit()
+
+    log.info(
+        "Flagged %d videos as deleted_or_private: %s",
+        len(missing_ids),
+        ", ".join(sorted(missing_ids)),
+    )
+    return len(missing_ids)
+
+
 def main() -> None:
     db_url = os.environ.get("SUPABASE_DB_URL")
     if not db_url:
@@ -254,7 +317,11 @@ def main() -> None:
             return
 
         # Step 2: Fetch REAL stats from YouTube API
-        metrics = fetch_youtube_stats(due_videos, key_pool)
+        metrics, missing_ids = fetch_youtube_stats(due_videos, key_pool)
+
+        # Step 2b: Flag deleted/privatized videos so they stop clogging polls
+        if missing_ids:
+            mark_deleted_or_private(conn, missing_ids)
 
         # Step 3: Persist and apply decay
         total = apply_decay_and_update(conn, metrics)

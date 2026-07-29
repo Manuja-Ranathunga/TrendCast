@@ -179,7 +179,7 @@ CREATE TABLE IF NOT EXISTS videos (
     status                   VARCHAR(16)     NOT NULL DEFAULT 'active',
     last_polled_at           TIMESTAMPTZ,
     next_poll_at             TIMESTAMPTZ,
-    current_interval_hours   INTEGER         NOT NULL DEFAULT 6,
+    current_interval_hours   NUMERIC(5,2)    NOT NULL DEFAULT 6,
     created_at               TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
     CONSTRAINT fk_videos_channel
