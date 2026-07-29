@@ -70,7 +70,7 @@ WHERE video_id = %(video_id)s;
 
 MARK_DELETED_SQL = """
 UPDATE videos
-SET status = 'deleted_or_private',
+SET status = 'deleted',
     last_polled_at = CURRENT_TIMESTAMP,
     next_poll_at = NULL
 WHERE video_id = %(video_id)s;
@@ -276,7 +276,7 @@ def apply_decay_and_update(conn, metrics: List[Dict[str, Any]]) -> int:
 def mark_deleted_or_private(conn, missing_ids: Set[str]) -> int:
     """Flag videos that the YouTube API no longer returns (deleted/privatized).
 
-    Sets status = 'deleted_or_private' and next_poll_at = NULL so they are
+    Sets status = 'deleted' and next_poll_at = NULL so they are
     never fetched again by query_due_videos.
     """
     if not missing_ids:
@@ -289,7 +289,7 @@ def mark_deleted_or_private(conn, missing_ids: Set[str]) -> int:
     conn.commit()
 
     log.info(
-        "Flagged %d videos as deleted_or_private: %s",
+        "Flagged %d videos as deleted: %s",
         len(missing_ids),
         ", ".join(sorted(missing_ids)),
     )
