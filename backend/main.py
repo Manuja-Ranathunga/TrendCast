@@ -1,11 +1,23 @@
 from typing import List
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from db import get_cursor
 from models import ChannelStatsEnriched, ForecastPoint, ForecastRequest, Video, ViewTimeseries
 
 app = FastAPI(title="Trendcast API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",  # Vite dev server
+        # TODO: add the production frontend URL here once it's deployed
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # PLACEHOLDER: hardcoded mock cumulative view curve, standing in until the
 # real forecasting model is trained and wired up. Ignores the request body.
