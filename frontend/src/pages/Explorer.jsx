@@ -13,8 +13,8 @@ export function Explorer() {
   return (
     <div>
       <div className="page-header">
-        <h1>Channels</h1>
-        <p className="page-subtitle">
+        <h1 className="page-title">Channels</h1>
+        <p className="page-sub">
           YouTube channels tracked by the TrendCast ETL pipeline.
         </p>
       </div>

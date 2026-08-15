@@ -1,0 +1,114 @@
+/* ==========================================================================
+   TrendCast — design tokens
+   Copied verbatim (same names, same values) from the ViewCast reference
+   app's styles.css :root / dark-mode / [data-theme] blocks. Do not
+   reinterpret these — if a value needs to change, change it here deliberately
+   and note why, don't silently drift from the source.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  --page:        #f9f9f7;
+  --surface:     #fcfcfb;
+  --surface-2:   #eef3f0;
+  --ink:         #0b0b0b;
+  --ink-2:       #52514e;
+  --muted:       #898781;
+  --hairline:    #e1e0d9;
+  --baseline:    #c3c2b7;
+  --border:      rgba(11, 11, 11, 0.10);
+
+  --series-views:    #2a78d6; /* categorical slot 1 (blue) */
+  --series-likes:    #eb6834; /* categorical slot 2 (orange) */
+  --series-comments: #1baf7a; /* categorical slot 3 (aqua) */
+
+  --good:     #0ca30c;
+  --warning:  #fab219;
+  --serious:  #ec835a;
+  --critical: #d03b3b;
+  --success-text: #006300;
+
+  --band-fill: rgba(42, 120, 214, 0.10);
+
+  --accent-gradient: linear-gradient(135deg, #2a78d6 0%, #1baf7a 100%);
+  --glow-accent: rgba(42, 120, 214, 0.28);
+  --blob-a: rgba(42, 120, 214, 0.16);
+  --blob-b: rgba(27, 175, 122, 0.14);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --shadow-1: 0 1px 2px rgba(11,11,11,0.06), 0 4px 16px rgba(11,11,11,0.04);
+  --shadow-hover: 0 2px 8px rgba(11,11,11,0.08), 0 12px 32px rgba(11,11,11,0.08);
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page:        #0d0d0d;
+    --surface:     #1a1a19;
+    --surface-2:   #132420;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --muted:       #8f8d86;
+    --hairline:    #2c2c2a;
+    --baseline:    #383835;
+    --border:      rgba(255,255,255,0.12);
+
+    --series-views:    #3987e5;
+    --series-likes:    #d95926;
+    --series-comments: #199e70;
+
+    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #e66767;
+    --success-text: #0ca30c;
+    --band-fill: rgba(57, 135, 229, 0.14);
+
+    --accent-gradient: linear-gradient(135deg, #3987e5 0%, #199e70 100%);
+    --glow-accent: rgba(57, 135, 229, 0.35);
+    --blob-a: rgba(57, 135, 229, 0.20);
+    --blob-b: rgba(25, 158, 112, 0.16);
+    --shadow-1: 0 1px 2px rgba(0,0,0,0.3), 0 4px 20px rgba(0,0,0,0.24);
+    --shadow-hover: 0 2px 10px rgba(0,0,0,0.35), 0 16px 40px rgba(0,0,0,0.32);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:        #0d0d0d;
+  --surface:     #1a1a19;
+  --surface-2:   #132420;
+  --ink:         #ffffff;
+  --ink-2:       #c3c2b7;
+  --muted:       #8f8d86;
+  --hairline:    #2c2c2a;
+  --baseline:    #383835;
+  --border:      rgba(255,255,255,0.12);
+
+  --series-views:    #3987e5;
+  --series-likes:    #d95926;
+  --series-comments: #199e70;
+
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #e66767;
+  --success-text: #0ca30c;
+  --band-fill: rgba(57, 135, 229, 0.14);
+
+  --accent-gradient: linear-gradient(135deg, #3987e5 0%, #199e70 100%);
+  --glow-accent: rgba(57, 135, 229, 0.35);
+  --blob-a: rgba(57, 135, 229, 0.20);
+  --blob-b: rgba(25, 158, 112, 0.16);
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.3), 0 4px 20px rgba(0,0,0,0.24);
+  --shadow-hover: 0 2px 10px rgba(0,0,0,0.35), 0 16px 40px rgba(0,0,0,0.32);
+}
+
+/* ---------- our own additions, not in the reference ----------
+   The reference has no single "brand accent" token — its buttons/links/
+   focus rings all use --series-views directly. We alias it so our
+   component CSS (buttons, focus rings, active nav) reads as intent
+   ("accent") rather than "the views series happens to be blue". Same
+   value, just a semantic name on top. */
+:root {
+  --accent: var(--series-views);
+  --accent-soft: var(--band-fill);
+}

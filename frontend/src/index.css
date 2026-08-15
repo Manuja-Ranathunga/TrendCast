@@ -1,259 +1,320 @@
-:root {
-  --bg: #f7f7f8;
-  --surface: #ffffff;
-  --text: #1f2328;
-  --text-muted: #6b7280;
-  --border: #e2e4e8;
-  --accent: #3b5bdb;
-  --accent-soft: rgba(59, 91, 219, 0.1);
-  --danger: #c0392b;
-  --danger-soft: rgba(192, 57, 43, 0.1);
-  --warning-bg: #fff6e0;
-  --warning-border: #f0d68a;
-  --warning-text: #6b5300;
-  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.05);
+/* ==========================================================================
+   TrendCast — base styles, app shell, and component patterns.
+   Selectors/values below are copied verbatim from the ViewCast reference
+   app's styles.css wherever a direct equivalent exists (sidebar shell,
+   card/grid, buttons/inputs, table, stat-tile, typography helpers, chart
+   chrome, spinner/empty-state). Where our app has no reference precedent
+   (detail-layout split view, forecast field/notice-banner, error state),
+   the block is marked "derived" and built from the same token palette
+   rather than copied. See REDESIGN_NOTES.md for the full list.
+   Tokens (colors, radii, shadows, font) come from ./styles/tokens.css.
+   ========================================================================== */
 
-  color-scheme: light dark;
-  font: 15px/1.55 system-ui, 'Segoe UI', Roboto, sans-serif;
-  color: var(--text);
-  background: var(--bg);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14161a;
-    --surface: #1c1f24;
-    --text: #e7e8ea;
-    --text-muted: #9aa0a8;
-    --border: #2c3038;
-    --accent: #7c93f0;
-    --accent-soft: rgba(124, 147, 240, 0.15);
-    --danger: #e37564;
-    --danger-soft: rgba(227, 117, 100, 0.15);
-    --warning-bg: #33290a;
-    --warning-border: #6b5300;
-    --warning-text: #f0d68a;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.25);
-  }
-}
-
-* {
-  box-sizing: border-box;
-}
-
+/* ---------- Reset & base ---------- */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
 body {
   margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  position: relative;
 }
-
-h1 {
-  font-size: 28px;
-  font-weight: 600;
-  margin: 0 0 4px;
-  letter-spacing: -0.3px;
+/* soft decorative glow, fixed behind all content — purely atmospheric,
+   copied from the reference's body::before */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(720px 420px at 14% -6%, var(--blob-a), transparent 60%),
+    radial-gradient(640px 460px at 100% 8%, var(--blob-b), transparent 60%);
 }
+.app-shell { position: relative; z-index: 1; }
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; }
+svg text { font-family: var(--font-ui); }
 
+/* ---------- App shell (sidebar) ---------- */
 .app-shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
   min-height: 100vh;
+}
+
+.sidebar {
+  border-right: 1px solid var(--hairline);
+  padding: 20px 14px;
   display: flex;
   flex-direction: column;
-}
-
-.topbar {
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  gap: 4px;
   position: sticky;
   top: 0;
-  z-index: 10;
+  height: 100vh;
 }
-
-.topbar-inner {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 16px 24px;
+.brand {
   display: flex;
   align-items: center;
-  gap: 32px;
+  gap: 10px;
+  padding: 6px 10px 20px;
+}
+.brand-mark {
+  width: 32px; height: 32px; border-radius: 10px;
+  background: var(--accent-gradient);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 700; font-size: 15px; flex: none;
+  box-shadow: 0 4px 14px var(--glow-accent);
+}
+.brand-name { font-weight: 650; font-size: 16.5px; letter-spacing: -0.01em; }
+.brand-tag { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+.nav-link {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 520;
+  cursor: pointer;
+  position: relative;
+  transition: background .15s ease, color .15s ease;
+}
+.nav-link .nav-icon { width: 18px; text-align: center; font-size: 15px; flex: none; transition: transform .15s ease; }
+.nav-link:hover { background: var(--surface-2); color: var(--ink); }
+.nav-link:hover .nav-icon { transform: scale(1.08); }
+.nav-link.active { background: var(--surface-2); color: var(--ink); font-weight: 620; }
+.nav-link.active .nav-icon { color: var(--series-views); }
+.nav-link.active::before {
+  content: "";
+  position: absolute; left: -14px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 18px; border-radius: 0 3px 3px 0;
+  background: var(--accent-gradient);
+}
+@media (max-width: 860px) { .nav-link.active::before { display: none; } }
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+  display: flex; flex-direction: column; gap: 8px;
 }
 
-.brand {
-  font-weight: 700;
-  font-size: 18px;
-  letter-spacing: -0.2px;
+.theme-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline); background: var(--surface);
+  color: var(--ink-2); font-size: 13px; cursor: pointer;
 }
+.theme-toggle:hover { background: var(--surface-2); }
 
-.nav-links {
-  display: flex;
-  gap: 24px;
+.engine-pill {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 10px; border-radius: var(--radius-sm);
+  background: var(--surface-2); font-size: 11.5px; color: var(--ink-2);
 }
+.engine-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warning); flex: none; }
 
-.nav-links a {
-  color: var(--text-muted);
-  text-decoration: none;
-  font-weight: 500;
-  padding: 6px 0;
-  border-bottom: 2px solid transparent;
-}
-
-.nav-links a:hover {
-  color: var(--text);
-}
-
-.nav-links a.active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-}
-
-.page {
-  max-width: 1080px;
+.main {
+  padding: 28px 36px 60px;
+  max-width: 1180px;
   width: 100%;
-  margin: 0 auto;
-  padding: 32px 24px 64px;
-  flex: 1;
 }
 
-.page-header {
-  margin-bottom: 24px;
+@media (max-width: 860px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar {
+    position: static; height: auto; flex-direction: row; align-items: center;
+    overflow-x: auto; padding: 12px 14px; gap: 10px;
+  }
+  .brand { padding: 0; }
+  .brand-tag { display: none; }
+  .sidebar-footer { margin-top: 0; padding-top: 0; border-top: none; flex-direction: row; }
+  .main { padding: 20px 16px 48px; }
 }
 
-.page-subtitle {
-  color: var(--text-muted);
-  margin-top: 4px;
-}
+/* ---------- Typography helpers ---------- */
+.page-title { font-size: 24px; font-weight: 650; letter-spacing: -0.015em; margin: 0 0 4px; }
+.page-sub { color: var(--ink-2); font-size: 14px; margin: 0 0 28px; }
+.section-title { font-size: 14.5px; font-weight: 620; margin: 0 0 12px; }
+.eyebrow { font-size: 11.5px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 
 .back-link {
   display: inline-block;
-  color: var(--text-muted);
-  text-decoration: none;
+  color: var(--ink-2);
   font-size: 13px;
   margin-bottom: 12px;
 }
+.back-link:hover { color: var(--series-views); }
 
-.back-link:hover {
-  color: var(--accent);
+/* ---------- Card ---------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease;
+}
+.card:hover { box-shadow: var(--shadow-hover); border-color: var(--border); }
+.card + .card { margin-top: 16px; }
+.grid { display: grid; gap: 16px; }
+.grid-2 { grid-template-columns: 1fr 1fr; }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 760px) {
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
 }
 
-/* States */
-
-.state {
-  padding: 32px 16px;
-  text-align: center;
-  color: var(--text-muted);
-}
-
-.state-error {
-  color: var(--danger);
-}
-
-.state-error p {
-  margin-bottom: 12px;
-}
-
-/* Buttons */
-
-.btn-primary,
-.btn-secondary {
-  font: inherit;
-  font-weight: 600;
-  border-radius: 8px;
-  padding: 10px 18px;
-  cursor: pointer;
+/* ---------- Buttons & inputs ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border-radius: var(--radius-sm);
+  padding: 11px 18px;
+  font-size: 14px; font-weight: 580;
   border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform .06s ease;
 }
-
+.btn:active { transform: scale(0.98); }
 .btn-primary {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-gradient); color: #fff;
+  box-shadow: 0 2px 10px var(--glow-accent);
+  transition: transform .06s ease, box-shadow .2s ease, filter .15s ease;
 }
+.btn-primary:hover { filter: brightness(1.08); box-shadow: 0 6px 20px var(--glow-accent); }
+.btn-ghost { background: transparent; border-color: var(--hairline); color: var(--ink); transition: background .15s ease, border-color .15s ease; }
+.btn-ghost:hover { background: var(--surface-2); border-color: var(--border); }
+.btn-sm { padding: 7px 12px; font-size: 12.5px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: default;
+.input {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 15px;
+  transition: box-shadow .15s ease, border-color .15s ease;
 }
+.input:focus { outline: none; border-color: var(--series-views); box-shadow: 0 0 0 4px var(--glow-accent); }
 
-.btn-secondary {
-  background: transparent;
-  border-color: var(--border);
-  color: var(--text);
-}
-
-.btn-secondary:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-/* Table */
-
+/* ---------- Table ---------- */
 .table-wrap {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
   overflow: hidden;
-  box-shadow: var(--shadow);
+  transition: box-shadow .2s ease, border-color .2s ease;
 }
-
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
+.table-wrap:hover { box-shadow: var(--shadow-hover); border-color: var(--border); }
+table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .data-table th {
-  text-align: left;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--muted); font-weight: 600; padding: 14px 20px; border-bottom: 1px solid var(--hairline);
 }
+.data-table td { padding: 14px 20px; border-bottom: 1px solid var(--hairline); vertical-align: middle; }
+.data-table tr:last-child td { border-bottom: none; }
+.data-table td, .data-table tr { transition: background .12s ease; }
+.data-table tr.clickable-row { cursor: pointer; }
+.data-table tr.clickable-row:hover td { background: var(--surface-2); }
+.cell-title { font-weight: 600; }
 
-.data-table td {
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
+/* badge — reference's generic chip (used standalone); tier-badge is our
+   accent-colored variant of it, since size-tier is meaningful category
+   info worth distinguishing by color (reference does the equivalent with
+   its per-score chip color). */
+.badge {
+  font-size: 11px; padding: 3px 9px; border-radius: 999px;
+  background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--hairline);
 }
-
-.data-table tr:last-child td {
-  border-bottom: none;
-}
-
-.clickable-row {
-  cursor: pointer;
-}
-
-.clickable-row:hover {
-  background: var(--accent-soft);
-}
-
-.cell-title {
-  font-weight: 600;
-}
-
 .tier-badge {
   display: inline-block;
   padding: 3px 10px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--band-fill);
+  color: var(--series-views);
+  border: 1px solid transparent;
 }
 
-/* Channel detail */
+/* ---------- Stat tiles ---------- */
+.stat-tile { padding: 16px; }
+.stat-tile .st-top { display: flex; justify-content: space-between; align-items: baseline; }
+.stat-tile .st-label { font-size: 12px; color: var(--ink-2); }
+.stat-tile .st-value { font-size: 24px; font-weight: 650; margin-top: 4px; letter-spacing: -0.01em; }
+.stat-tile .st-sub { font-size: 11px; color: var(--muted); margin-top: 8px; }
 
+/* ---------- Chart chrome ---------- */
+.chart-panel {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  min-height: 200px;
+  box-shadow: var(--shadow-1);
+}
+.chart-legend { display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.legend-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.legend-swatch.line { border-radius: 0; height: 2px; }
+
+/* Recharts renders its own tooltip positioning wrapper, so this styles
+   only the content box — same visual values as the reference's
+   .chart-tooltip (fixed/opacity handling isn't needed, Recharts owns that). */
+.chart-tooltip-content {
+  background: var(--ink);
+  color: var(--page);
+  font-size: 11.5px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  line-height: 1.5;
+  box-shadow: var(--shadow-1);
+  white-space: nowrap;
+}
+.chart-tooltip-content .ctt-label { font-weight: 650; margin-bottom: 2px; }
+
+/* ---------- Loading / empty / error states ---------- */
+.state-loading { padding: 60px 20px; text-align: center; }
+.spinner {
+  width: 32px; height: 32px; margin: 0 auto 16px; border-radius: 50%;
+  border: 3px solid var(--hairline); border-top-color: var(--series-views);
+  animation: spin 0.85s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.state-loading .state-label { color: var(--ink-2); font-size: 13.5px; }
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 1.6s; }
+}
+
+.empty-state { text-align: center; padding: 60px 20px; color: var(--ink-2); }
+.empty-state .es-icon { font-size: 30px; margin-bottom: 12px; }
+.empty-state h3 { margin: 0 0 6px; color: var(--ink); font-size: 16px; }
+.empty-state p { margin: 0 0 18px; font-size: 13.5px; }
+
+/* derived: reference has no fetch-error UI (it's a client-only app), so
+   this reuses the empty-state shape with critical-toned accents instead
+   of copying a component that doesn't exist there. */
+.state-error.empty-state .es-icon { color: var(--critical); }
+.state-error.empty-state p { color: var(--ink-2); }
+
+/* ---------- Channel detail split view (no reference equivalent — reskinned
+   with tokens only, same layout as before) ---------- */
 .detail-layout {
   display: grid;
   grid-template-columns: 280px 1fr;
-  gap: 24px;
+  gap: 16px;
   align-items: start;
 }
-
-@media (max-width: 720px) {
-  .detail-layout {
-    grid-template-columns: 1fr;
-  }
+@media (max-width: 760px) {
+  .detail-layout { grid-template-columns: 1fr; }
 }
-
 .video-list {
   list-style: none;
   margin: 0;
@@ -261,102 +322,92 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 520px;
+  max-height: 560px;
   overflow-y: auto;
 }
-
 .video-item {
   width: 100%;
   text-align: left;
   font: inherit;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
   padding: 10px 14px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  transition: border-color .15s ease, background .15s ease;
 }
+.video-item:hover { border-color: var(--series-views); }
+.video-item.active { border-color: var(--series-views); background: var(--band-fill); }
+.video-id { font-weight: 600; font-size: 13px; word-break: break-all; }
+.video-meta { font-size: 12px; color: var(--ink-2); }
 
-.video-item:hover {
-  border-color: var(--accent);
-}
-
-.video-item.active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.video-id {
-  font-weight: 600;
-  font-size: 13px;
-  word-break: break-all;
-}
-
-.video-meta {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.chart-panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
-  min-height: 200px;
-  box-shadow: var(--shadow);
-}
-
-/* Forecast form */
-
-.notice-banner {
-  background: var(--warning-bg);
-  border: 1px solid var(--warning-border);
-  color: var(--warning-text);
-  border-radius: 10px;
-  padding: 14px 18px;
-  margin-bottom: 24px;
-  font-size: 14px;
-}
-
+/* ---------- Forecast form (derived — reference's predict-form is a
+   single-line hero input with no field/label pattern; ours has three
+   labeled fields, so the label treatment borrows the reference's
+   eyebrow/label sizing rather than being copied from an equivalent). ---------- */
 .forecast-form {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 24px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   max-width: 480px;
-  margin-bottom: 24px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-1);
 }
-
 .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--ink-2);
 }
-
 .field input {
   font: inherit;
   font-weight: 400;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--page);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
   padding: 10px 12px;
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
-
 .field input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--series-views);
+  box-shadow: 0 0 0 4px var(--glow-accent);
+}
+.forecast-form .btn-primary { align-self: flex-start; }
+
+/* derived — reference has no dedicated banner component; background/border
+   are a 12%/40% mix of the real --warning token (same alpha-overlay
+   technique the reference uses for --band-fill / --glow-accent), not an
+   invented token. */
+.notice-banner {
+  background: rgba(250, 178, 25, 0.12);
+  border: 1px solid rgba(250, 178, 25, 0.4);
+  color: var(--ink);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  font-size: 13.5px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.notice-banner .nb-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--warning);
+  flex: none; margin-top: 6px;
 }
 
-.forecast-form .btn-primary {
-  align-self: flex-start;
-}
+/* ---------- Utility ---------- */
+.muted { color: var(--muted); }
+.mono { font-variant-numeric: tabular-nums; }
+.flex-between { display: flex; align-items: center; justify-content: space-between; }
+.mt-8 { margin-top: 8px; } .mt-16 { margin-top: 16px; } .mt-24 { margin-top: 24px; }
