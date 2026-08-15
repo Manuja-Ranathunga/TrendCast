@@ -42,3 +42,14 @@ class ViewTimeseries(BaseModel):
     view_count: int
     like_count: int
     comment_count: int
+
+
+class ForecastRequest(BaseModel):
+    title: str
+    thumbnail_url: str
+    scheduled_upload_time: datetime
+
+
+class ForecastPoint(BaseModel):
+    day: int
+    views: int

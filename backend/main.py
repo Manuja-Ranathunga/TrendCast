@@ -3,9 +3,19 @@ from typing import List
 from fastapi import FastAPI
 
 from db import get_cursor
-from models import ChannelStatsEnriched, Video, ViewTimeseries
+from models import ChannelStatsEnriched, ForecastPoint, ForecastRequest, Video, ViewTimeseries
 
 app = FastAPI(title="Trendcast API")
+
+# PLACEHOLDER: hardcoded mock cumulative view curve, standing in until the
+# real forecasting model is trained and wired up. Ignores the request body.
+MOCK_CUMULATIVE_VIEW_CURVE = [
+    1200, 2600, 4300, 6100, 8000, 9800, 11500,
+    13100, 14600, 16000, 17300, 18500, 19600, 20600,
+    21500, 22300, 23000, 23600, 24100, 24550, 24950,
+    25300, 25600, 25850, 26050, 26200, 26320, 26410,
+    26470, 26500,
+]
 
 TIMESERIES_BY_VIDEO_SQL = """
     SELECT
@@ -80,6 +90,16 @@ def get_video_timeseries(video_id: str):
         columns = [col.name for col in cur.description]
         rows = cur.fetchall()
     return [dict(zip(columns, row)) for row in rows]
+
+
+@app.post("/forecast", response_model=List[ForecastPoint])
+def forecast(request: ForecastRequest):
+    # PLACEHOLDER: returns the hardcoded mock curve regardless of input.
+    # Replace with a call to the real forecasting model once it exists.
+    return [
+        {"day": day, "views": views}
+        for day, views in enumerate(MOCK_CUMULATIVE_VIEW_CURVE, start=1)
+    ]
 
 
 @app.get("/channels/{channel_id}/videos", response_model=List[Video])
