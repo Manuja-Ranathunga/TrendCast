@@ -10,4 +10,4 @@ def health():
     with get_cursor() as cur:
         cur.execute("SELECT 1")
         cur.fetchone()
-    return {"status": "ok"}
+    return {"status": "ok", "db": "connected"}
