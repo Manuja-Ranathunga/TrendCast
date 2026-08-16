@@ -10,3 +10,5 @@ torch
 sentence-transformers
 transformers
 tqdm
+scikit-learn
+joblib
