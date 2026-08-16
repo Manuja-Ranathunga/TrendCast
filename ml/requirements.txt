@@ -6,3 +6,5 @@ scipy
 matplotlib
 requests
 Pillow
+torch
+sentence-transformers
