@@ -13,6 +13,7 @@ from __future__ import annotations
 import pandas as pd
 
 from common import (
+    FIRST_OBS_MAX_HOURS,
     GAP_THRESHOLD_HOURS,
     MAIN_DROP_PCT_THRESHOLD,
     USABLE_SPAN_DAYS,
@@ -99,6 +100,23 @@ def print_report(audit: AuditResult) -> None:
         f"(after span/negative-elapsed/missing-meta/monotonic filters): {len(audit.gap_exceed_ids)}"
     )
 
+    print("\n--- First-observation lag filter --------------------------------------------")
+    print(
+        "A video can pass the span >= 7d filter while having zero coverage near publish "
+        "(e.g. a pre-existing video only picked up once its channel was added to tracking).\n"
+        f"Videos excluded for a first observation > {FIRST_OBS_MAX_HOURS:.0f}h after publish "
+        f"(after span/negative-elapsed/missing-meta/monotonic/density filters): "
+        f"{len(audit.first_obs_exceed_ids)}"
+    )
+    print("Usable-count sensitivity to the first-observation threshold (all other filters held fixed):")
+    for t in sorted(audit.first_obs_threshold_sensitivity):
+        marker = "  <- used" if t == FIRST_OBS_MAX_HOURS else ""
+        print(f"  threshold={t:>5.0f}h  usable={audit.first_obs_threshold_sensitivity[t]}{marker}")
+    print(
+        "(see ml/sweep_first_obs.py for the fuller sweep: fit quality and channel "
+        "diversity at each threshold, not just the count)"
+    )
+
     print("\n--- Filter pipeline (stepwise removal, in applied order) -------------------")
     remaining = len(audit.span_ge_7d_ids)
     print(f"  start (span >= {USABLE_SPAN_DAYS}d):                 {remaining}")
@@ -110,7 +128,8 @@ def print_report(audit: AuditResult) -> None:
     print(
         f"Videos meeting ALL of: span >= {USABLE_SPAN_DAYS}d, no negative-elapsed rows, "
         f"non-null title & thumbnail_url, max single view-count drop <= {MAIN_DROP_PCT_THRESHOLD:.0f}%, "
-        f"first-7-day gap <= {GAP_THRESHOLD_HOURS:.0f}h:"
+        f"first-7-day gap <= {GAP_THRESHOLD_HOURS:.0f}h, first observation <= {FIRST_OBS_MAX_HOURS:.0f}h "
+        "after publish:"
     )
     print(f"\n  >>> USABLE TRAINING SET SIZE: {len(audit.usable_ids)} videos <<<\n")
 

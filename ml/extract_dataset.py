@@ -1,8 +1,12 @@
 """Read-only extraction of the usable training set into ml/data/*.csv.
 
-Uses the same "usable video" definition as audit_data.py (span >= 7 days, no
-negative-elapsed rows, non-null title & thumbnail_url, max single view-count
-drop <= MAIN_DROP_PCT_THRESHOLD, first-7-day gap <= GAP_THRESHOLD_HOURS) and
+Uses the same "usable video" definition as audit_data.py - the single source
+of truth is common.compute_audit() - span >= 7 days, no negative-elapsed
+rows, non-null title & thumbnail_url, max single view-count drop <=
+MAIN_DROP_PCT_THRESHOLD, first-7-day gap <= GAP_THRESHOLD_HOURS, and first
+observation <= FIRST_OBS_MAX_HOURS after publish (excludes videos whose
+polling only started long after their real published_at, which would give a
+curve fit a flat tail to converge on instead of an actual rising phase). And
 writes two files:
 
   ml/data/videos.csv           one row per usable video, joined with

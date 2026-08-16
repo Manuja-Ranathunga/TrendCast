@@ -54,6 +54,18 @@ and `.env` file the backend and ETL jobs use — nothing to configure here).
   python ml/plot_fits.py
   ```
 
+- **`sweep_first_obs.py`** — standalone diagnostic (touches the DB, unlike
+  `fit_curves.py`/`plot_fits.py`) that sweeps the first-observation-lag
+  threshold across `common.FIRST_OBS_SWEEP_HOURS` and reports, at each
+  candidate value, survivor count, fit quality (median R², median tau of
+  converged fits), and channel diversity. This is what the
+  `FIRST_OBS_MAX_HOURS` default in `common.py` is justified against; rerun it
+  if that default ever changes.
+
+  ```
+  python ml/sweep_first_obs.py
+  ```
+
 ## "Usable" video definition
 
 A video is included in the training set if it meets all of:
@@ -66,6 +78,13 @@ A video is included in the training set if it meets all of:
   legitimately revises counts down when filtering spam; retained videos have
   their `view_count` repaired to a running maximum rather than excluded)
 - largest observation gap within the first 7 days <= 24h
+- first real observation <= 12h after `published_at` (a video can pass the
+  span filter while having zero coverage near publish - e.g. a pre-existing
+  video only picked up once its channel was added to tracking; without this,
+  curve_fit converges against a flat tail and reports a fitted `tau` with no
+  real information behind it - 12h rather than a naive 6h because the sweep
+  in `sweep_first_obs.py` shows 6h is unnecessarily costly for negligible
+  fit-quality gain, see the comment above `FIRST_OBS_MAX_HOURS` in `common.py`)
 
 See `common.py`'s `compute_audit()` for the exact stepwise filter pipeline
 and `audit_data.py` for the full diagnostics (including threshold

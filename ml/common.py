@@ -42,6 +42,30 @@ DROP_PCT_SENSITIVITY_THRESHOLDS = (1.0, 2.0, 5.0, 10.0)
 # sparse in the window we care most about, even if their overall span is fine.
 GAP_THRESHOLD_HOURS = 24.0
 
+# "span >= 7 days" (latest_scraped - published_at) does NOT guarantee coverage
+# starts near publish - a video can be polled for a week straight starting
+# months after it was actually published (e.g. a pre-existing video picked up
+# only once its channel was added to tracking), and still pass that filter.
+# The median fitted tau (see ml/fit_curves.py diagnostics) is ~7 hours, so a
+# video whose first real observation lands well past that - e.g. hour 20 - has
+# already missed its entire rising phase. curve_fit will still converge
+# against the flat tail and report a respectable R^2, but the recovered tau
+# carries no real information about the video's actual growth rate. Since tau
+# is one of our two prediction targets, including these videos would train
+# the model on noise.
+#
+# A naive default would be ~6h (comfortably inside one tau). But the sweep in
+# ml/sweep_first_obs.py shows 6h is unnecessarily costly: median R^2 and
+# median tau are nearly flat across the whole 2-24h range (R^2 0.963 -> 0.936,
+# tau 5.5h -> 7.3h as the threshold loosens from 2h to 24h), while going from
+# 6h to 12h grows the usable set ~68% (1970 -> 3317 videos) and channel count
+# from 45 to 53, for essentially no fit-quality cost. 12h -> 24h then adds
+# almost nothing (+7% videos, same channel count, flat R^2) - 12h is the
+# point past which loosening further stops paying for itself. Rerun the
+# sweep if the underlying data changes enough to revisit this.
+FIRST_OBS_MAX_HOURS = 12.0
+FIRST_OBS_SWEEP_HOURS = (2.0, 4.0, 6.0, 12.0, 24.0)
+
 
 def get_connection():
     """Open a psycopg2 connection pinned to read-only for the session."""
@@ -119,6 +143,10 @@ class AuditResult:
 
     gap_exceed_ids: set  # span>=7d videos whose first-7-day max gap exceeds GAP_THRESHOLD_HOURS
 
+    first_obs_elapsed_hours: pd.Series  # video_id -> hours from published_at to earliest scraped_at
+    first_obs_exceed_ids: set  # videos excluded at FIRST_OBS_MAX_HOURS
+    first_obs_threshold_sensitivity: dict  # {threshold_hours: usable_count}
+
     pipeline_removed: dict  # stepwise removal counts, in filter-application order
 
     usable_ids: set
@@ -131,15 +159,23 @@ def _usable_ids_for_threshold(
     missing_meta_ids: set,
     drop_pct: pd.Series,
     gap_exceed_ids: set,
-    threshold_pct: float,
+    first_obs_elapsed_hours: pd.Series,
+    drop_threshold_pct: float = MAIN_DROP_PCT_THRESHOLD,
+    first_obs_threshold_hours: float = FIRST_OBS_MAX_HOURS,
 ) -> set:
-    drop_exceed = set(drop_pct[drop_pct > threshold_pct].index)
+    """Recompute the usable set with one or both thresholds swapped out,
+    holding every other filter fixed - used for sensitivity sweeps."""
+    drop_exceed = set(drop_pct[drop_pct > drop_threshold_pct].index)
+    first_obs_exceed = set(
+        first_obs_elapsed_hours[first_obs_elapsed_hours > first_obs_threshold_hours].index
+    )
     return (
         span_ge_7d_ids
         - negative_elapsed_ids
         - missing_meta_ids
         - drop_exceed
         - gap_exceed_ids
+        - first_obs_exceed
     )
 
 
@@ -206,6 +242,10 @@ def compute_audit(videos_df: pd.DataFrame, ts_df: pd.DataFrame) -> AuditResult:
         first_7d_max_gap_hours[first_7d_max_gap_hours > GAP_THRESHOLD_HOURS].index
     )
 
+    # --- First-observation lag: hours from published_at to the earliest ------
+    # --- real observation, regardless of the video's overall span. -----------
+    first_obs_elapsed_hours = ts.groupby("video_id")["elapsed_hours"].min()
+
     # --- Final usable set, built up stepwise so each filter's removal count --
     # --- is reported in the order it's actually applied. -----------------------
     stage0 = span_ge_7d_ids
@@ -214,23 +254,49 @@ def compute_audit(videos_df: pd.DataFrame, ts_df: pd.DataFrame) -> AuditResult:
     drop_exceed_ids = set(drop_pct[drop_pct > MAIN_DROP_PCT_THRESHOLD].index)
     stage3 = stage2 - drop_exceed_ids
     stage4 = stage3 - gap_exceed_ids
+    first_obs_exceed_ids = set(
+        first_obs_elapsed_hours[first_obs_elapsed_hours > FIRST_OBS_MAX_HOURS].index
+    )
+    stage5 = stage4 - first_obs_exceed_ids
 
-    usable_ids = stage4
+    usable_ids = stage5
 
     pipeline_removed = {
         "negative_elapsed": len(stage0) - len(stage1),
         "missing_meta": len(stage1) - len(stage2),
         f"monotonic_repair_gt_{MAIN_DROP_PCT_THRESHOLD:.0f}pct": len(stage2) - len(stage3),
         f"density_gap_gt_{GAP_THRESHOLD_HOURS:.0f}h": len(stage3) - len(stage4),
+        f"first_obs_gt_{FIRST_OBS_MAX_HOURS:.0f}h": len(stage4) - len(stage5),
     }
 
     drop_threshold_sensitivity = {
         t: len(
             _usable_ids_for_threshold(
-                span_ge_7d_ids, negative_elapsed_ids, missing_meta_ids, drop_pct, gap_exceed_ids, t
+                span_ge_7d_ids,
+                negative_elapsed_ids,
+                missing_meta_ids,
+                drop_pct,
+                gap_exceed_ids,
+                first_obs_elapsed_hours,
+                drop_threshold_pct=t,
             )
         )
         for t in DROP_PCT_SENSITIVITY_THRESHOLDS
+    }
+
+    first_obs_threshold_sensitivity = {
+        t: len(
+            _usable_ids_for_threshold(
+                span_ge_7d_ids,
+                negative_elapsed_ids,
+                missing_meta_ids,
+                drop_pct,
+                gap_exceed_ids,
+                first_obs_elapsed_hours,
+                first_obs_threshold_hours=t,
+            )
+        )
+        for t in FIRST_OBS_SWEEP_HOURS
     }
 
     usable_channel_counts = (
@@ -254,6 +320,9 @@ def compute_audit(videos_df: pd.DataFrame, ts_df: pd.DataFrame) -> AuditResult:
         drop_exceed_ids=drop_exceed_ids,
         drop_threshold_sensitivity=drop_threshold_sensitivity,
         gap_exceed_ids=gap_exceed_ids,
+        first_obs_elapsed_hours=first_obs_elapsed_hours,
+        first_obs_exceed_ids=first_obs_exceed_ids,
+        first_obs_threshold_sensitivity=first_obs_threshold_sensitivity,
         pipeline_removed=pipeline_removed,
         usable_ids=usable_ids,
         usable_channel_counts=usable_channel_counts,
