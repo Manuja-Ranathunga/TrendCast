@@ -27,9 +27,11 @@ import argparse
 import logging
 import os
 import sys
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import psycopg2
+from dotenv import load_dotenv
 from psycopg2.extras import execute_batch
 
 # Ensure sibling modules are importable when run as a standalone script
@@ -46,6 +48,9 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S%z",
 )
 log = logging.getLogger(__name__)
+
+BACKEND_ENV_PATH = Path(__file__).resolve().parents[2] / "backend" / ".env"
+load_dotenv(BACKEND_ENV_PATH)
 
 # ---------------------------------------------------------------------------
 # SQL Templates
