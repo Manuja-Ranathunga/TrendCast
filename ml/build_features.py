@@ -4,10 +4,11 @@ columns, computes the two training targets, and writes the single training
 table. No downloads, no model loading beyond what PCA/one-hot encoding need.
 
 Before targets are computed, drops videos whose curve fit is unreliable:
-tau pinned at (or near) the optimizer's upper bound, R^2 below a minimum
-threshold, or a resulting target_log_vinf_rel far enough from 0 to indicate
-a bad fit rather than a genuinely extreme video. See OUTLIER FILTER
-constants below.
+tau pinned at (or near) the optimizer's upper bound, or R^2 below a minimum
+threshold. See OUTLIER FILTER constants below. Genuine viral outliers (large
+target_log_vinf_rel with a good R^2) are deliberately kept - predicting
+outperformance is the point of the model, so those are exactly the videos
+it most needs to learn from.
 
 Reads:
   ml/data/features_simple.csv
@@ -64,11 +65,6 @@ TAU_MAX_HOURS = 10_000.0
 # Below this R^2, the fitted curve doesn't actually describe the video's
 # observed growth, so V_inf/tau from it aren't trustworthy either.
 R2_MIN = 0.5
-# +-5 in log-ratio space is roughly a 150x ratio to the channel median
-# in either direction - past that, it's more likely a bad fit than a
-# genuinely extreme video.
-VINF_REL_LOG_BOUND = 5.0
-N_OUTLIER_EXAMPLES = 5
 
 SIMPLE_FEATURE_COLUMNS = [
     "title_char_length",
@@ -133,29 +129,17 @@ def main() -> None:
 
     # Channel medians computed on the bad-fit-filtered set, not the raw join,
     # so a channel's median V_inf isn't dragged around by videos we already
-    # know have unreliable fits.
+    # know have unreliable fits. Genuine viral outliers stay in - the model
+    # needs exactly those to learn to predict outperformance.
     channel_medians = stage_r2.groupby("channel_id")["v_inf"].median()
     channel_median_vinf = stage_r2["channel_id"].map(channel_medians)
-    stage_r2 = stage_r2.assign(
-        target_log_vinf_rel=np.log(stage_r2["v_inf"] / channel_median_vinf)
+    filtered = stage_r2.assign(
+        target_log_vinf_rel=np.log(stage_r2["v_inf"] / channel_median_vinf),
+        target_log_tau=np.log(stage_r2["tau"]),
     )
 
-    vinf_rel_dist = stage_r2["target_log_vinf_rel"].describe()
+    vinf_rel_dist = filtered["target_log_vinf_rel"].describe()
 
-    outlier_mask = stage_r2["target_log_vinf_rel"].abs() > VINF_REL_LOG_BOUND
-    outliers = stage_r2.loc[outlier_mask, ["video_id", "v_inf", "channel_id", "r2", "target_log_vinf_rel"]].copy()
-    outliers["channel_median_vinf"] = channel_median_vinf.loc[outlier_mask]
-    outlier_examples = (
-        outliers.reindex(outliers["target_log_vinf_rel"].abs().sort_values(ascending=False).index)
-        [["video_id", "v_inf", "channel_median_vinf", "r2", "target_log_vinf_rel"]]
-        .head(N_OUTLIER_EXAMPLES)
-    )
-    filtered = stage_r2.loc[~outlier_mask].copy()
-    removal_counts[f"|target_log_vinf_rel| > {VINF_REL_LOG_BOUND:.0f} (bad fit, not genuine outlier)"] = (
-        len(stage_r2) - len(filtered)
-    )
-
-    filtered["target_log_tau"] = np.log(filtered["tau"])
     joined = filtered.reset_index(drop=True)
 
     # --- PCA, fit on the final filtered set's embeddings -----------------------
@@ -203,7 +187,6 @@ def main() -> None:
         n_dropped_join,
         removal_counts,
         vinf_rel_dist,
-        outlier_examples,
         title_pca,
         thumb_pca,
     )
@@ -215,7 +198,6 @@ def print_summary(
     n_dropped_join: int,
     removal_counts: dict[str, int],
     vinf_rel_dist: pd.Series,
-    outlier_examples: pd.DataFrame,
     title_pca: PCA,
     thumb_pca: PCA,
 ) -> None:
@@ -233,21 +215,13 @@ def print_summary(
         remaining -= removed
         print(f"  - {label:<58} -{removed:<5} -> {remaining}")
 
-    print("\n--- target_log_vinf_rel distribution (before the +-bound filter) ---------")
+    print("\n--- target_log_vinf_rel distribution (no bound filter - outliers kept) ---")
     print(
         f"  count={vinf_rel_dist['count']:.0f}  mean={vinf_rel_dist['mean']:.4f}  "
         f"std={vinf_rel_dist['std']:.4f}  min={vinf_rel_dist['min']:.4f}  "
         f"25%={vinf_rel_dist['25%']:.4f}  50%={vinf_rel_dist['50%']:.4f}  "
         f"75%={vinf_rel_dist['75%']:.4f}  max={vinf_rel_dist['max']:.4f}"
     )
-    if len(outlier_examples):
-        print(f"\n  {len(outlier_examples)} most extreme excluded videos:")
-        for _, row in outlier_examples.iterrows():
-            print(
-                f"    {row['video_id']:<14} v_inf={row['v_inf']:.2f}  "
-                f"channel_median_vinf={row['channel_median_vinf']:.2f}  "
-                f"r2={row['r2']:.4f}  target_log_vinf_rel={row['target_log_vinf_rel']:.4f}"
-            )
 
     print(f"\nFinal rows:                {len(output_df)}")
     print(f"Final column count:        {len(output_df.columns)}")
