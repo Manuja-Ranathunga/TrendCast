@@ -3,8 +3,15 @@ embeddings, reduces each embedding set with PCA, one-hot encodes categorical
 columns, computes the two training targets, and writes the single training
 table. No downloads, no model loading beyond what PCA/one-hot encoding need.
 
+Before targets are computed, drops videos whose curve fit is unreliable:
+tau pinned at (or near) the optimizer's upper bound, R^2 below a minimum
+threshold, or a resulting target_log_vinf_rel far enough from 0 to indicate
+a bad fit rather than a genuinely extreme video. See OUTLIER FILTER
+constants below.
+
 Reads:
   ml/data/features_simple.csv
+  ml/data/curve_params.csv           (for r2, to screen out bad fits)
   ml/data/title_embeddings.npy       + ml/data/title_embedding_ids.csv
   ml/data/thumbnail_embeddings.npy   + ml/data/thumbnail_embedding_ids.csv
 
@@ -34,6 +41,7 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 
 FEATURES_SIMPLE_CSV = DATA_DIR / "features_simple.csv"
+CURVE_PARAMS_CSV = DATA_DIR / "curve_params.csv"
 TITLE_EMBEDDINGS_NPY = DATA_DIR / "title_embeddings.npy"
 TITLE_EMBEDDING_IDS_CSV = DATA_DIR / "title_embedding_ids.csv"
 THUMBNAIL_EMBEDDINGS_NPY = DATA_DIR / "thumbnail_embeddings.npy"
@@ -47,6 +55,20 @@ CHANNEL_MEDIANS_OUT = MODELS_DIR / "channel_medians.json"
 
 N_PCA_COMPONENTS = 40
 CATEGORICAL_COLUMNS = ["category_id", "size_tier"]
+
+# --- Outlier filter -----------------------------------------------------------
+# tau near/at the curve_fit optimizer's upper bound (see ml/fit_curves.py)
+# means the video never visibly saturated within the 7-day window, so the
+# fitted decay constant carries no real information.
+TAU_MAX_HOURS = 10_000.0
+# Below this R^2, the fitted curve doesn't actually describe the video's
+# observed growth, so V_inf/tau from it aren't trustworthy either.
+R2_MIN = 0.5
+# +-5 in log-ratio space is roughly a 150x ratio to the channel median
+# in either direction - past that, it's more likely a bad fit than a
+# genuinely extreme video.
+VINF_REL_LOG_BOUND = 5.0
+N_OUTLIER_EXAMPLES = 5
 
 SIMPLE_FEATURE_COLUMNS = [
     "title_char_length",
@@ -87,18 +109,56 @@ def main() -> None:
     features_df = pd.read_csv(FEATURES_SIMPLE_CSV)
     n_before_join = len(features_df)
 
+    curve_params_df = pd.read_csv(CURVE_PARAMS_CSV, usecols=["video_id", "r2"])
     title_df = load_embedding_table(TITLE_EMBEDDINGS_NPY, TITLE_EMBEDDING_IDS_CSV, "title_raw")
     thumb_df = load_embedding_table(THUMBNAIL_EMBEDDINGS_NPY, THUMBNAIL_EMBEDDING_IDS_CSV, "thumb_raw")
 
     joined = (
         features_df.set_index("video_id")
+        .join(curve_params_df.set_index("video_id"), how="inner")
         .join(title_df, how="inner")
         .join(thumb_df, how="inner")
         .reset_index()
     )
-    n_dropped = n_before_join - len(joined)
+    n_dropped_join = n_before_join - len(joined)
 
-    # --- PCA, fit on this join's embeddings -----------------------------------
+    # --- Outlier filter, stepwise ---------------------------------------------
+    removal_counts: dict[str, int] = {}
+
+    stage_tau = joined[joined["tau"] <= TAU_MAX_HOURS]
+    removal_counts[f"tau > {TAU_MAX_HOURS:.0f}h (unconverged)"] = len(joined) - len(stage_tau)
+
+    stage_r2 = stage_tau[stage_tau["r2"].notna() & (stage_tau["r2"] >= R2_MIN)]
+    removal_counts[f"r2 < {R2_MIN} or missing (poor fit)"] = len(stage_tau) - len(stage_r2)
+
+    # Channel medians computed on the bad-fit-filtered set, not the raw join,
+    # so a channel's median V_inf isn't dragged around by videos we already
+    # know have unreliable fits.
+    channel_medians = stage_r2.groupby("channel_id")["v_inf"].median()
+    channel_median_vinf = stage_r2["channel_id"].map(channel_medians)
+    stage_r2 = stage_r2.assign(
+        target_log_vinf_rel=np.log(stage_r2["v_inf"] / channel_median_vinf)
+    )
+
+    vinf_rel_dist = stage_r2["target_log_vinf_rel"].describe()
+
+    outlier_mask = stage_r2["target_log_vinf_rel"].abs() > VINF_REL_LOG_BOUND
+    outliers = stage_r2.loc[outlier_mask, ["video_id", "v_inf", "channel_id", "r2", "target_log_vinf_rel"]].copy()
+    outliers["channel_median_vinf"] = channel_median_vinf.loc[outlier_mask]
+    outlier_examples = (
+        outliers.reindex(outliers["target_log_vinf_rel"].abs().sort_values(ascending=False).index)
+        [["video_id", "v_inf", "channel_median_vinf", "r2", "target_log_vinf_rel"]]
+        .head(N_OUTLIER_EXAMPLES)
+    )
+    filtered = stage_r2.loc[~outlier_mask].copy()
+    removal_counts[f"|target_log_vinf_rel| > {VINF_REL_LOG_BOUND:.0f} (bad fit, not genuine outlier)"] = (
+        len(stage_r2) - len(filtered)
+    )
+
+    filtered["target_log_tau"] = np.log(filtered["tau"])
+    joined = filtered.reset_index(drop=True)
+
+    # --- PCA, fit on the final filtered set's embeddings -----------------------
     title_raw_cols = list(title_df.columns)
     thumb_raw_cols = list(thumb_df.columns)
 
@@ -107,12 +167,6 @@ def main() -> None:
 
     title_pcs_df.index = joined.index
     thumb_pcs_df.index = joined.index
-
-    # --- Targets -----------------------------------------------------------
-    channel_medians = joined.groupby("channel_id")["v_inf"].median()
-    channel_median_vinf = joined["channel_id"].map(channel_medians)
-    joined["target_log_vinf_rel"] = np.log(joined["v_inf"] / channel_median_vinf)
-    joined["target_log_tau"] = np.log(joined["tau"])
 
     # --- Categorical one-hot encoding ---------------------------------------
     encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
@@ -143,13 +197,25 @@ def main() -> None:
     with CHANNEL_MEDIANS_OUT.open("w") as f:
         json.dump(channel_medians.to_dict(), f, indent=2)
 
-    print_summary(output_df, n_before_join, n_dropped, title_pca, thumb_pca)
+    print_summary(
+        output_df,
+        n_before_join,
+        n_dropped_join,
+        removal_counts,
+        vinf_rel_dist,
+        outlier_examples,
+        title_pca,
+        thumb_pca,
+    )
 
 
 def print_summary(
     output_df: pd.DataFrame,
     n_before_join: int,
-    n_dropped: int,
+    n_dropped_join: int,
+    removal_counts: dict[str, int],
+    vinf_rel_dist: pd.Series,
+    outlier_examples: pd.DataFrame,
     title_pca: PCA,
     thumb_pca: PCA,
 ) -> None:
@@ -158,8 +224,32 @@ def print_summary(
     print("BUILD_FEATURES SUMMARY")
     print(line)
     print(f"Rows before join:          {n_before_join}")
-    print(f"Rows dropped by the join:  {n_dropped}")
-    print(f"Final rows:                {len(output_df)}")
+    print(f"Rows dropped by the join:  {n_dropped_join}")
+
+    print("\n--- Outlier filter (stepwise removal) ------------------------------------")
+    remaining = n_before_join - n_dropped_join
+    print(f"  after join:                                                 {remaining}")
+    for label, removed in removal_counts.items():
+        remaining -= removed
+        print(f"  - {label:<58} -{removed:<5} -> {remaining}")
+
+    print("\n--- target_log_vinf_rel distribution (before the +-bound filter) ---------")
+    print(
+        f"  count={vinf_rel_dist['count']:.0f}  mean={vinf_rel_dist['mean']:.4f}  "
+        f"std={vinf_rel_dist['std']:.4f}  min={vinf_rel_dist['min']:.4f}  "
+        f"25%={vinf_rel_dist['25%']:.4f}  50%={vinf_rel_dist['50%']:.4f}  "
+        f"75%={vinf_rel_dist['75%']:.4f}  max={vinf_rel_dist['max']:.4f}"
+    )
+    if len(outlier_examples):
+        print(f"\n  {len(outlier_examples)} most extreme excluded videos:")
+        for _, row in outlier_examples.iterrows():
+            print(
+                f"    {row['video_id']:<14} v_inf={row['v_inf']:.2f}  "
+                f"channel_median_vinf={row['channel_median_vinf']:.2f}  "
+                f"r2={row['r2']:.4f}  target_log_vinf_rel={row['target_log_vinf_rel']:.4f}"
+            )
+
+    print(f"\nFinal rows:                {len(output_df)}")
     print(f"Final column count:        {len(output_df.columns)}")
 
     print("\n--- PCA explained variance retained -----------------------------------")
