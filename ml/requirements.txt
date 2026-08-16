@@ -8,3 +8,5 @@ requests
 Pillow
 torch
 sentence-transformers
+transformers
+tqdm
