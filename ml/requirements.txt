@@ -12,3 +12,4 @@ transformers
 tqdm
 scikit-learn
 joblib
+xgboost
