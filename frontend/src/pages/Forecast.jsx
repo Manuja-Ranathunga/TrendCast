@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   CartesianGrid,
   Line,
@@ -8,17 +8,24 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { postForecast } from '../api/client'
+import { getChannels, postForecast } from '../api/client'
 import { ErrorState, LoadingState } from '../components/AsyncState'
 import { formatCompactNumber } from '../utils/format'
 
-const emptyForm = { title: '', thumbnailUrl: '', scheduledUploadTime: '' }
+const emptyForm = { title: '', thumbnailUrl: '', scheduledUploadTime: '', channelId: '' }
 
 export function Forecast() {
   const [form, setForm] = useState(emptyForm)
   const [forecast, setForecast] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [channels, setChannels] = useState([])
+
+  useEffect(() => {
+    getChannels()
+      .then(setChannels)
+      .catch(() => setChannels([])) // channel selector is optional - the form still works without it
+  }, [])
 
   function updateField(field) {
     return (event) => setForm((prev) => ({ ...prev, [field]: event.target.value }))
@@ -83,6 +90,25 @@ export function Forecast() {
           />
         </label>
 
+        {channels.length > 0 && (
+          <label className="field">
+            <span>Channel</span>
+            <select value={form.channelId} onChange={updateField('channelId')}>
+              <option value="">No specific channel</option>
+              {channels.map((channel) => (
+                <option key={channel.channel_id} value={channel.channel_id}>
+                  {channel.channel_title}
+                </option>
+              ))}
+            </select>
+            <span className="field-hint">
+              Selecting the creator's channel gives a more accurate forecast,
+              since the model uses that channel's historical performance as
+              its baseline.
+            </span>
+          </label>
+        )}
+
         <button type="submit" className="btn-primary" disabled={loading}>
           {loading ? 'Forecasting…' : 'Generate forecast'}
         </button>
@@ -95,19 +121,19 @@ export function Forecast() {
         <>
           {!forecast.used_channel_context && (
             <div className="context-note">
-              No channel was specified, so this forecast uses dataset-wide
-              averages instead of a specific channel's history.
+              This forecast is based on dataset-wide averages rather than a
+              specific channel's history, so it may be less precise.
             </div>
           )}
 
           <div className="forecast-stats">
             <div className="stat">
-              <span className="stat-label">Projected total views (V∞)</span>
-              <span className="stat-value">{formatCompactNumber(forecast.v_inf)}</span>
+              <span className="stat-label">Estimated ceiling — where views level off</span>
+              <span className="stat-value">{formatCompactNumber(forecast.v_inf)} views</span>
             </div>
             <div className="stat">
-              <span className="stat-label">Growth time constant (τ)</span>
-              <span className="stat-value">{forecast.tau.toFixed(1)}h</span>
+              <span className="stat-label">How fast it gets there</span>
+              <span className="stat-value">{forecast.tau.toFixed(1)} hours</span>
             </div>
           </div>
 
@@ -117,6 +143,9 @@ export function Forecast() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis
                   dataKey="day"
+                  type="number"
+                  domain={[1, 7]}
+                  ticks={[1, 2, 3, 4, 5, 6, 7]}
                   tick={{ fontSize: 12 }}
                   label={{ value: 'Day', position: 'insideBottom', offset: -4 }}
                 />
